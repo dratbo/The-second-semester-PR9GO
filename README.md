@@ -274,7 +274,7 @@ tasks:list
 
 ### Результаты:
 
-Всё запустили и поехали! По стандарту делаем два запроса.
+Всё запустили и поехали! По стандарту делаем два запроса
 
 
 <table cellpadding="10">
@@ -336,7 +336,7 @@ tasks:list
   </tr>
 </table>
 
-В логах: `cache invalidated: tasks:list*`, затем снова `cache miss` для списка.
+В логах: `cache invalidated: tasks:list*`, затем снова `cache miss` для списка
 
 <table cellpadding="10">
   <tr>
