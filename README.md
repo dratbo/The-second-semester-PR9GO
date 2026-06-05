@@ -1,6 +1,6 @@
 <h1 align="center"> Привет! Я <a target="_blank"> Кармеев Артур из группы ЭФМО-01-25 </a> 
 <img src="https://github.com/blackcater/blackcater/raw/main/images/Hi.gif" height="32"/></h1>
-<h3 align="center"> Данная практика была интересной 🤔 </h3>
+<h3 align="center"> Данная практика была не из лёгких :face_with_head_bandage: </h3>
 
 <h3 align="center"> Практическая работа №9: Реализация распределённого кэша (Redis cluster) </h3>
 
@@ -232,15 +232,167 @@ tasks:list
 
 Пройдемся чутка по коду, что поменял, что добавил
 
+Фиксированный ключ для полного списка без query-параметров
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="519" alt="image" src="https://github.com/user-attachments/assets/06d359eb-27e1-4660-9188-df7db884ee92" /></td>
+  </tr>
+</table>
+
+Нужен для стабильного порядка задач в списке (по id), иначе порядок из map каждый раз разный 
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="516" alt="image" src="https://github.com/user-attachments/assets/fb3ad0d9-ab5b-45fc-ba77-da2d28e595d1" /></td>
+  </tr>
+</table>
+
+Метод `GetTasksList` работает как cache-aside: сначала читает JSON из Redis по ключу `tasks:list` или `tasks:list:page=…:limit=…`, при промахе берёт данные из репозитория и записывает их в кэш с более коротким TTL, чем у одной задачи.
+При PATCH и DELETE вызывается `invalidateTasksListCache`: удаляются все ключи `tasks:list*`, чтобы список в кэше не оставался устаревшим после изменения задачи. 
+Тут больше всего мучался. 
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="508" alt="image" src="https://github.com/user-attachments/assets/bf5df245-75b0-4943-888d-9f31957a1cc1" /></td>
+  </tr>
+</table>
+
+
+Добавлена целая функция в handlers.go! HTTP-слой не знает про Redis; только парсит запрос и вызывает сервис — разделение ответственности (handler / service / cache / repo)
+
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="519" alt="image" src="https://github.com/user-attachments/assets/8051ea8b-dc08-4355-82ca-9cc8fe44058a" /></td>
+  </tr>
+</table>
+
+Ну и в main.go прописал новые маршруты
+
+---
+
+### Результаты:
+
+Всё запустили и поехали! По стандарту делаем два запроса.
+
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="509" alt="image" src="https://github.com/user-attachments/assets/38aaf1a0-91dc-4d2a-95be-405ce2dc3841" /></td>
+  </tr>
+</table>
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="515" alt="image" src="https://github.com/user-attachments/assets/b9003423-4961-41fe-8caa-f8454d0a0e7b" /></td>
+  </tr>
+</table>
+
+В логах: первый раз `cache miss: tasks:list`, второй — `cache hit: tasks:list`. Всё сработало!
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="393" alt="image" src="https://github.com/user-attachments/assets/69eb16db-3537-457c-9462-d97f87c1c079" /></td>
+  </tr>
+</table>
+
+Теперь с пагинацией :disguised_face:
 
 
 
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="512" alt="image" src="https://github.com/user-attachments/assets/8fe63bca-c4a9-4cfe-a956-d986c442a9c6" /></td>
+  </tr>
+</table>
+
+В логах: `cache miss: tasks:list:page=1:limit=10` → затем `cache hit`.
 
 
+<table cellpadding="10">
+  <tr>
+    <td><img width="949" height="170" alt="image" src="https://github.com/user-attachments/assets/e92c956f-c8e5-47ef-97ab-49d22a7377e3" /></td>
+  </tr>
+</table>
+
+Инвалидация (после PATCH по id)
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="513" alt="image" src="https://github.com/user-attachments/assets/5e4a10a0-2ba4-4a09-8cc2-286404515a72" /></td>
+  </tr>
+</table>
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="822" height="52" alt="image" src="https://github.com/user-attachments/assets/a3cf82e9-d812-4f8d-9839-9c9e4cd308bd" /></td>
+  </tr>
+</table>
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="515" alt="image" src="https://github.com/user-attachments/assets/eef39923-5799-4978-b1a4-b889f334fae1" /></td>
+  </tr>
+</table>
+
+В логах: `cache invalidated: tasks:list*`, затем снова `cache miss` для списка.
+
+<table cellpadding="10">
+  <tr>
+    <td><img width="974" height="566" alt="image" src="https://github.com/user-attachments/assets/753a3e39-63a4-41d9-82c4-bd3a60cc62db" /></td>
+  </tr>
+</table>
 
 
+## 8. Контрольные вопросы :exploding_head:
 
 
+1. Что такое cache-aside?
+
+Cache-aside — стратегия, при которой приложение само управляет кэшем: сначала читает Redis; при попадании (hit) отдаёт данные из кэша; при промахе (miss) читает основное хранилище (БД/репозиторий), кладёт результат в Redis и отвечает клиенту. Redis не ходит в БД сам — логика в сервисе.
 
 
+2. Почему Redis не должен быть источником истины?
 
+Источник истины — основное хранилище (PostgreSQL, репозиторий и т.д.): там данные сохраняются надёжно и полно. Redis — кэш в памяти: может очиститься, упасть, истечь по TTL. Если считать Redis «главной БД», при сбое или потере кэша теряются или искажаются данные.
+
+
+3. Зачем нужен TTL?
+
+TTL (time to live) — время жизни ключа в кэше. Без TTL устаревшие данные могут храниться слишком долго после изменений в БД. TTL ограничивает «возраст» кэша и снижает риск долго отдавать неактуальную информацию, даже если инвалидацию забыли.
+
+
+4. Что такое jitter?
+
+Jitter — случайная добавка к TTL (например, база 120 с + от 0 до 30 с). Нужен, чтобы ключи не истекали одновременно: иначе много запросов разом пойдут в БД (cache stampede / thundering herd).
+
+
+5. Почему одинаковый TTL для всех ключей может быть проблемой?
+
+Если у многих ключей TTL заканчивается в один момент, кэш «обнуляется» пачкой и нагрузка на БД резко растёт. Jitter разносит моменты истечения во времени и сглаживает пики нагрузки.
+
+
+6. Как должен вести себя сервис при недоступности Redis?
+
+Сервис не должен падать из‑за Redis: ошибки чтения/записи логируются, запрос обрабатывается через репозиторий/БД (fallback). Клиент получает ответ, если данные есть в основном хранилище; кэш при недоступности Redis просто не используется. В вашей практике при старте — предупреждение в лог, при запросе — работа без кэша.
+
+
+7. Почему кэш нужно инвалидировать после изменения данных?
+
+После PATCH/DELETE в БД данные уже другие, а в Redis может остаться старая запись. Без инвалидации (удаления или обновления ключа) клиент получит устаревший ответ (cache hit по «грязным» данным). Поэтому после изменения сбрасывают `tasks:task:<id>` и при необходимости ключи списка `tasks:list*`.
+
+
+8. Чем кэширование одной сущности проще, чем кэширование списка?
+
+Одна задача — один ключ, одна запись, простая инвалидация при изменении этой задачи. Список зависит от состава всех задач: любое изменение/удаление может сделать список в кэше неверным; нужны отдельные ключи (в т.ч. с пагинацией) и сброс нескольких ключей. Списки в методичке кэшируют осторожнее или на меньший TTL.
+
+
+9. В чём смысл ключа вида tasks:task:<id>?
+
+Это предсказуемое имя кэша: префикс сервиса (`tasks`), тип объекта (`task`), идентификатор (`<id>`). Удобно искать, отлаживать, не смешивать с другими ключами (`tasks:list`), согласовано с API `GET /v1/tasks/{id}`.
+
+
+10. Почему Redis рассматривается как внешняя инфраструктурная зависимость?
+
+Redis — отдельный процесс/сервис (часто в Docker), не часть кода приложения. Он может быть недоступен, перезапущен, обновлён отдельно; от него зависят таймауты, сеть, конфигурация. Как и БД, его подключают снаружи — поэтому это инфраструктурная зависимость, а не встроенная библиотека в процессе API.
